@@ -71,22 +71,6 @@ RUN pyuwsgi --cflags | sed 's/ /\n/g' | grep -e "^-DUWSGI_SSL$"
 
 ###### JOBS #######
 
-#USER root
-
-#RUN echo 'JOBS_ROOT = "/opt/nautobot/jobs"' >> /opt/nautobot/nautobot_config.py
-
-#RUN mkdir -p /opt/nautobot/jobs 
-
-#COPY ../jobs /opt/nautobot/jobs
-
-#RUN chown -R nautobot:nautobot /opt/nautobot/jobs && chmod -R 755 /opt/nautobot/jobs
-
-#RUN chmod 644 /opt/nautobot/jobs/__init__.py
-
-#RUN ls -ld /opt/nautobot/jobs/ && ls -l /opt/nautobot/jobs/
-
-#USER nautobot
-
 USER root
 
 RUN mkdir -p /opt/nautobot/jobs && chown -R nautobot:nautobot /opt/nautobot/jobs
