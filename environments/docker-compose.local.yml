@@ -1,12 +1,16 @@
 ---
 services:
   nautobot:
-    command: "nautobot-server runserver 0.0.0.0:8080"
+    #  command: "nautobot-server runserver 0.0.0.0:8443"
+    command: "uwsgi --https :8443,/etc/ssl/nautobot/fullchain1.pem,/etc/ssl/nautobot/privkey1.pem --module nautobot.core.wsgi --master --processes 8 --threads 4 --harakiri 120 --static-map /static=/opt/nautobot/static"
     ports:
-      - "8080:8080"
+      - "8443:8443"
     volumes:
       - "../config/nautobot_config.py:/opt/nautobot/nautobot_config.py"
       - "../jobs:/opt/nautobot/jobs"
+      - "./Certificate/fullchain1.pem:/etc/ssl/nautobot/fullchain1.pem" 
+      - "./Certificate/privkey1.pem:/etc/ssl/nautobot/privkey1.pem"
+
     healthcheck:
       interval: "30s"
       timeout: "10s"

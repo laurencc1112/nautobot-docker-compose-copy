@@ -1,3 +1,11 @@
+## Added by LC
+/home/rhel/nautobot_poetry/nautobot-docker-compose-copy/Certificate/
+
+
+
+
+############3
+
 # Ansible Retry Files
 *.retry
 

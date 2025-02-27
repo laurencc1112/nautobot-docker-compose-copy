@@ -40,9 +40,12 @@ RUN cd /source && \
 #         cp dist/*.whl /tmp/dist; \
 #     done
 
-COPY ../jobs /opt/nautobot/jobs
+
+#COPY ../jobs /opt/nautobot/jobs
 # COPY ../metrics /opt/nautobot/metrics
 COPY ../config/nautobot_config.py /opt/nautobot/nautobot_config.py
+
+
 
 WORKDIR /source
 
@@ -61,8 +64,40 @@ COPY --from=builder /usr/local/lib/python${PYTHON_VER}/site-packages /usr/local/
 COPY --from=builder /usr/local/bin /usr/local/bin
 # COPY ../packages /source/packages
 
+
 # Verify that pyuwsgi was installed correctly, i.e. with SSL support
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN pyuwsgi --cflags | sed 's/ /\n/g' | grep -e "^-DUWSGI_SSL$"
 
+###### JOBS #######
+
+#USER root
+
+#RUN echo 'JOBS_ROOT = "/opt/nautobot/jobs"' >> /opt/nautobot/nautobot_config.py
+
+#RUN mkdir -p /opt/nautobot/jobs 
+
+#COPY ../jobs /opt/nautobot/jobs
+
+#RUN chown -R nautobot:nautobot /opt/nautobot/jobs && chmod -R 755 /opt/nautobot/jobs
+
+#RUN chmod 644 /opt/nautobot/jobs/__init__.py
+
+#RUN ls -ld /opt/nautobot/jobs/ && ls -l /opt/nautobot/jobs/
+
+#USER nautobot
+
+USER root
+
+RUN mkdir -p /opt/nautobot/jobs && chown -R nautobot:nautobot /opt/nautobot/jobs
+
+COPY --chown=nautobot:nautobot ../jobs /opt/nautobot/jobs
+
+RUN chmod -R 755 /opt/nautobot/jobs
+RUN chmod 644 /opt/nautobot/jobs/__init__.py
+
 USER nautobot
+
+#####################
+
+
