@@ -1,6 +1,7 @@
 ARG NAUTOBOT_VERSION
 ARG PYTHON_VER
 FROM ghcr.io/nautobot/nautobot:${NAUTOBOT_VERSION}-py${PYTHON_VER} as nautobot-base
+#FROM ghcr.io/nautobot/nautobot:2.3.16-py${PYTHON_VER} as nautobot-base
 
 USER 0
 
@@ -71,6 +72,9 @@ RUN pyuwsgi --cflags | sed 's/ /\n/g' | grep -e "^-DUWSGI_SSL$"
 
 ###### JOBS #######
 
+COPY config/uwsgi.ini /opt/nautobot/uwsgi.ini
+RUN chmod 644 /opt/nautobot/uwsgi.ini
+
 USER root
 
 RUN mkdir -p /opt/nautobot/jobs && chown -R nautobot:nautobot /opt/nautobot/jobs
@@ -82,6 +86,14 @@ RUN chmod 644 /opt/nautobot/jobs/__init__.py
 
 USER nautobot
 
+
 #####################
+
+#RUN sed -i 's/^processes = .*/processes = 5/' /opt/nautobot/uwsgi.ini && \
+#    sed -i 's/^listen = .*/listen = 256/' /opt/nautobot/uwsgi.ini && \
+#    sed -i 's/^buffer-size = .*/buffer-size = 8192/' /opt/nautobot/uwsgi.ini
+#
+#CMD ["uwsgi", "--ini", "/opt/nautobot/uwsgi.ini"]
+
 
 

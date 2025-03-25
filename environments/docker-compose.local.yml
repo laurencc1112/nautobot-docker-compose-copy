@@ -2,7 +2,7 @@
 services:
   nautobot:
     #  command: "nautobot-server runserver 0.0.0.0:8443"
-    command: "uwsgi --https :8443,/etc/ssl/nautobot/fullchain1.pem,/etc/ssl/nautobot/privkey1.pem --module nautobot.core.wsgi --master --processes 10 --threads 6 --harakiri 300 --static-map /static=/opt/nautobot/static"
+    command: ["uwsgi", "--ini", "/opt/nautobot/uwsgi.ini"]
     ports:
       - "8443:8443"
     volumes:

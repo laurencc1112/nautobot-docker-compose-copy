@@ -3,6 +3,7 @@ x-nautobot-build: &nautobot-build
   build:
     args:
       NAUTOBOT_VERSION: "${NAUTOBOT_VERSION}"
+      #NAUTOBOT_VERSION: 2.3.16
       PYTHON_VER: "${PYTHON_VER}"
     context: "../"
     target: "nautobot"
