@@ -290,3 +290,16 @@ def db_import(context):
 
     print("Importing DB...\n")
     docker_compose(context, import_cmd, pty=True)
+
+@task
+def shell_plus(context):
+    """Launch a Django shell with shell_plus."""
+    command = "exec nautobot nautobot-server shell_plus"
+    docker_compose(context, command, pty=True)
+
+namespace.add_task(shell_plus, "shell-plus")
+
+
+from invoke import task
+
+

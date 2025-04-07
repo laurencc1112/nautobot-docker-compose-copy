@@ -6,11 +6,11 @@ from nautobot.apps.jobs import register_jobs
 
 
 class ModifyInterfacesToWirelessConfig(Job):
-    """Removes all tags from selected interfaces except 'STP:portfast' and sets untagged VLAN to a user-chosen VLAN (default 300)."""
+    """Removes all tags from selected interfaces except STP:portfast and sets untagged vlan to a user selected vlan (default 300)."""
 
     class Meta:
         name = "Modify Interfaces to Wireless Configuration"
-        description = "Removes all tags from selected interfaces except 'STP:portfast' and sets untagged VLAN to a selected VLAN."
+        description = "Removes all tags from selected interfaces except STP:portfast and sets untagged vlan to a selected vlan."
         approval_required = True
 
     location = ObjectVar(
@@ -30,10 +30,10 @@ class ModifyInterfacesToWirelessConfig(Job):
     interfaces = MultiObjectVar(
         label="Interfaces",
         model=Interface,
-        display_field="computed_fields.device_interface",  # Ensures "device - interface" is shown
+        display_field="computed_fields.device_interface",  ### Ensures device - interface is shown
         query_params={
-            "device": "$devices",  # Only show interfaces from selected devices
-            "include": "computed_fields",  # Ensures computed fields are included in API response
+            "device": "$devices",  ### Only show interfaces from selected devices
+            "include": "computed_fields",  ### Ensures computed fields are included in API response
         },
         description="Select interfaces to modify (filtered by selected devices).",
         required=True,
@@ -41,7 +41,7 @@ class ModifyInterfacesToWirelessConfig(Job):
 
     vlan_choice = ObjectVar(
         model=VLAN,
-        query_params={"location": "$location"},  ### Only show VLANs from the selected location
+        query_params={"location": "$location"},  ### Only show vlans from the selected location
         description="Select a VLAN from the same location as the device. Defaults to VLAN 300 if none selected.",
         required=False,
     )
@@ -56,10 +56,10 @@ class ModifyInterfacesToWirelessConfig(Job):
             self.logger.error(f"VLAN 300 does not exist at location {location}. Job aborted.")
             raise Exception(f"VLAN 300 not found at location {location}. Ensure it exists in Nautobot.")
 
-        ### Get the "STP:portfast" tag
+        ### Get the STP:portfast tag
         stp_portfast_tag = Tag.objects.filter(name="STP:portfast").first()
         if not stp_portfast_tag:
-            self.logger.warning("The tag 'STP:portfast' does not exist in Nautobot. Continuing without preserving it.")
+            self.logger.warning("The tag 'STP:portfast' does not exist in Nautobot.")
 
         ### Log selected devices and interfaces
         self.logger.info(f"Selected location: {location}")
@@ -75,14 +75,14 @@ class ModifyInterfacesToWirelessConfig(Job):
         for interface in interfaces:
             current_tags = set(interface.tags.all())
 
-            ### Keep only 'STP:portfast', remove everything else
+            ### Keep only STP:portfast, remove everything else
             new_tags = {tag for tag in current_tags if tag.name == "STP:portfast"}
 
-            ### Add 'STP:portfast' tag if missing
+            ### Add STP:portfast tag if missing
             if stp_portfast_tag and "STP:portfast" not in {tag.name for tag in new_tags}:
                 new_tags.add(stp_portfast_tag)
 
-            ### Update interface with tags and VLAN
+            ### Update interface with tags and vlan
             interface.tags.set(new_tags)
             interface.untagged_vlan = selected_vlan
             interface.validated_save()

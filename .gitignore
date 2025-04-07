@@ -1,7 +1,7 @@
 ## Added by LC
 /home/rhel/nautobot_poetry/nautobot-docker-compose-copy/Certificate/
 
-
+/environment/creds.env
 Certificate/
 environments/Certificate/
 
