@@ -3,14 +3,14 @@
 # This job: allows the user to select a device location, select multiple devices (switches) from that location, select multiple
 #   interfaces from those switches, and select an applicable wireless vlan, or defaults to the vlan 300 for the selected location.
 #   After the selections are made, it checks to ensure that none of the selected interfaces are set to 'tagged' mode. If they are
-#   set to tagged, job immediately fails. Otherwise, it sets the interface status to 'active', sets enabled to 'true', sets the 
+#   set to tagged, job immediately fails. Otherwise, it sets the interface status to 'active', sets enabled to 'true', sets the
 #   mode to 'access' if not already set, sets the untagged vlan to either the user selected vlan or VID=300 for the location,
-#   removes all tags except 'STP:portfast' or adds that tag if it is missing. 
+#   removes all tags except 'STP:portfast' or adds that tag if it is missing.
 # This job utilizes a computed field to display the switch name - interface name for the user.
 # - LC
 
 from nautobot.apps.jobs import Job, MultiObjectVar, ObjectVar
-from nautobot.dcim.models import Device, Interface, Location
+from nautobot.dcim.models import Device, Interface, Location, LocationType
 from nautobot.extras.models import Tag, Status
 from nautobot.ipam.models import VLAN
 from nautobot.apps.jobs import register_jobs
@@ -28,7 +28,7 @@ class ModifyInterfacesToWirelessConfig(Job):
         label="Location",
         model=Location,
         required=True,
-        description="Select the location for the devices.",
+        description="Select a building location (not room, MDFs, or IDFs).",
     )
 
     devices = MultiObjectVar(
@@ -60,11 +60,20 @@ class ModifyInterfacesToWirelessConfig(Job):
     def run(self, location, devices, interfaces, vlan_choice):
         """Perform tag removal on the selected interfaces and update VLANs."""
 
+
+        ### Make sure selected location is a building for vlan ineritance
+        building_type = LocationType.objects.filter(name__iexact="building").first()
+        if not building_type or location.location_type != building_type:
+            raise Exception(
+                f"The selected location '{location.name}' is not of type 'Building'. "
+                "Please select a top-level building (not a closet or MDF)."
+            )
+
         ### Fail immediately if any trunk (tagged/tagged-all) ports are selected
         trunk_ports = [
             f"{iface.device.name} - {iface.name}"
             for iface in interfaces
-            if iface.mode in ["tagged", "tagged-all"]
+            if iface.mode in ["tagged", "tagged-all"] or iface.lag is not None
         ]
 
         if trunk_ports:
@@ -141,3 +150,4 @@ class ModifyInterfacesToWirelessConfig(Job):
 
 
 register_jobs(ModifyInterfacesToWirelessConfig)
+

@@ -15,6 +15,9 @@ nautobot = "2.4.6"
 invoke = "*"
 toml = "*"
 
+[tool.poetry.group.dev.dependencies]
+mydocstring = "^0.2.7"
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
