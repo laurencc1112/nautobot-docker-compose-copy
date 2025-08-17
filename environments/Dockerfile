@@ -87,13 +87,35 @@ RUN chmod 644 /opt/nautobot/jobs/__init__.py
 USER nautobot
 
 
-#####################
+
+######### Plugins ############
+
+## Validation
+
+RUN pip install nautobot-data-validation-engine
+
+RUN echo "nautobot-data-validation-engine" >> /opt/nautobot/local_requirements.txt
+
+## SSO
+
+RUN pip3 install --no-binary=lxml,xmlsec "nautobot[sso]"
+
+## Chat ops
+
+RUN pip install nautobot-chatops
+
+RUN echo nautobot-chatops >> /opt/nautobot/local_requirements.txt
+
+RUN pip install nautobot-chatops[grafana]
+
+RUN pip install nautobot-plugin-nornir
+
+RUN echo nautobot-plugin-nornir >> local_requirements.txt
 
 #RUN sed -i 's/^processes = .*/processes = 5/' /opt/nautobot/uwsgi.ini && \
 #    sed -i 's/^listen = .*/listen = 256/' /opt/nautobot/uwsgi.ini && \
 #    sed -i 's/^buffer-size = .*/buffer-size = 8192/' /opt/nautobot/uwsgi.ini
 #
 #CMD ["uwsgi", "--ini", "/opt/nautobot/uwsgi.ini"]
-
 
 
