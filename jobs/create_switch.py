@@ -1,18 +1,19 @@
 """
-Create a Cisco access switch (SVI mgmt only, optional VC, controlled naming).
+Create a Cisco access switch.
+
 
 What this job does:
 1) Prompts for building, room, optional rack, manufacturer (Cisco), and device model.
-2) Lets you choose naming method (auto/manual) and optional role code for the name (auto selects next as# if blank).
+2) Lets you choose naming method (auto/manual) for the name. Auto generated pulls name info from location + next as #.
 3) Optional virtual chassis: if yes, VC is named after the base device name and the device gets named w/ .1.
 4) Choose management vlan and add management IP.
 5) Validates device name uniqueness (including <name>.1), IP not already in use,
-   and IP falls within an existing prefix on chosen VLAN.
+   and IP falls within an existing prefix on chosen vlan.
 6) Creates the device (using the ".1" DeviceType if present), creates VC if applicable,
    creates SVI interface, assigns the IP, and sets it as primary IPv4 for the device.
 
 Notes:
-- Did not add option to auto select next mgmt IP because of first 4 reservations in infoblox.    
+- Did not add option to auto select next mgmt IP because of first 4 reservations in infoblox.
 """
 
 import re
@@ -88,13 +89,6 @@ class CreateSwitch(Job):
         description="Choose the switch model (select the base model with no .1,.2, etc).",
     )
 
-    role_code = StringVar(
-        label="Role Code (for name only)",
-        required=False,
-        description="Role used only in the device name (e.g., as1, ls2). "
-                    "If left blank, the next 'as#' is chosen automatically based on the closet.",
-    )
-
     name_mode = ChoiceVar(
         label="Naming Method",
         required=True,
@@ -163,12 +157,10 @@ class CreateSwitch(Job):
                     continue
         return f"as{max_n + 1 if max_n else 1}"
 
-    def _suggest_name(self, building: Location, room: Location, role_code_text: str | None) -> str:
+    def _suggest_name(self, building: Location, room: Location) -> str:
         base_parts = self._base_name_parts(building, room)
-        if not role_code_text:
-            role_code_text = self._auto_role_code(room, base_parts)
-        role_code_clean = re.sub(r'[^A-Za-z0-9]+', '', role_code_text).lower() or "as1"
-        base = "-".join(base_parts + [role_code_clean])
+        auto_role = self._auto_role_code(room, base_parts)  # e.g., 'as3'
+        base = "-".join(base_parts + [auto_role])
         normalized = re.sub(r'[^A-Za-z0-9\-]', '', base)
         normalized = re.sub(r'-{2,}', '-', normalized).strip('-')
         return normalized.lower()
@@ -191,6 +183,57 @@ class CreateSwitch(Job):
         device.save()
         return ip_obj
 
+    def _choices_available_ips_for_vlan(self, vlan: VLAN, skip_first: int = 0, limit: int = 256):
+        if not vlan:
+            return []
+        vlan_prefixes = Prefix.objects.filter(vlan=vlan)
+        if not vlan_prefixes.exists():
+            return []
+        in_use_hosts = set()
+        for p in vlan_prefixes:
+            try:
+                network = p.network
+            except Exception:
+                continue
+            used = IPAddress.objects.filter(host__net_contained=network).values_list("host", flat=True)
+            in_use_hosts.update(str(h) for h in used)
+        candidates = []
+        for p in vlan_prefixes:
+            try:
+                net = p.network
+            except Exception:
+                continue
+            host_list = list(net.hosts())
+            if skip_first:
+                host_list = host_list[skip_first:]
+            for ip in host_list:
+                if len(candidates) >= limit:
+                    break
+                s = str(ip)
+                if s in in_use_hosts:
+                    continue
+                candidates.append((s, s))
+            if len(candidates) >= limit:
+                break
+        return candidates
+
+    def as_form_field_overrides(self):
+        overrides = super().as_form_field_overrides()
+        form = self._get_bound_form()
+        if form is not None:
+            selected_vlan = form.cleaned_data.get("mgmt_vlan") or form.initial.get("mgmt_vlan")
+            if selected_vlan:
+                try:
+                    if not isinstance(selected_vlan, VLAN):
+                        selected_vlan = VLAN.objects.get(pk=selected_vlan)
+                except Exception:
+                    selected_vlan = None
+            if selected_vlan:
+                overrides["mgmt_ip_choice"] = {
+                    "choices": self._choices_available_ips_for_vlan(selected_vlan, skip_first=0, limit=256)
+                }
+        return overrides
+
     def run(
         self,
         building,
@@ -202,8 +245,7 @@ class CreateSwitch(Job):
         custom_name,
         vc,
         mgmt_vlan,
-        mgmt_ip,
-        role_code,
+        mgmt_ip_choice,
     ):
         status_active = Status.objects.get(name="Active")
 
@@ -211,8 +253,8 @@ class CreateSwitch(Job):
         vg_loc = getattr(vg, "location", None)
         if not vg or not vg_loc or vg_loc.id != building.id:
             raise ValueError(
-                f"Selected VLAN '{mgmt_vlan}' belongs to VLAN Group '{vg}' at '{vg_loc}', "
-                f"not the selected Building '{building}'. Choose a VLAN for this Building."
+                f"Selected vlan '{mgmt_vlan}' belongs to vlan group '{vg}' at '{vg_loc}', "
+                f"not the selected Building '{building}'. Choose a vlan for this Building."
             )
 
         mfg_name = manufacturer.name if manufacturer else ""
@@ -228,7 +270,7 @@ class CreateSwitch(Job):
         except Role.DoesNotExist:
             raise ValueError(f"Required Role '{ROLE_NAME}' does not exist. Please create it first.")
 
-        suggested_name = self._suggest_name(building, room, role_code)
+        suggested_name = self._suggest_name(building, room)
         if name_mode == "manual" and custom_name:
             base_name = custom_name.strip()
             self.logger.info(f"Suggested name: {suggested_name} (ignored; using manual: {base_name}).")
@@ -250,9 +292,9 @@ class CreateSwitch(Job):
                 base_name = base_name[:-2]
 
         try:
-            ip_host = ip_address(str(mgmt_ip).strip())
+            ip_host = ip_address(str(mgmt_ip_choice).strip())
         except Exception:
-            raise ValueError(f"'{mgmt_ip}' is not a valid IPv4 address (enter a single host IP, no mask).")
+            raise ValueError(f"'{mgmt_ip_choice}' is not a valid IPv4 address (enter a single host IP, no mask).")
 
         if IPAddress.objects.filter(host=str(ip_host)).exists():
             raise ValueError(f"Management IP {ip_host} is already in use.")
@@ -285,9 +327,9 @@ class CreateSwitch(Job):
                 vc_obj.save()
             if not device.virtual_chassis_id or device.virtual_chassis_id != vc_obj.id or device.vc_position != 1:
                 device.virtual_chassis = vc_obj
-                device.vc_position = 1
+                device.vc_position = 0
                 device.save()
-            self.logger.info(f"Virtual Chassis '{vc_obj.name}' ensured; '{device.name}' set as master (position 1).")
+            self.logger.info(f"Virtual Chassis '{vc_obj.name}' ensured; '{device.name}' set as master (position 0).")
 
         covering = (
             Prefix.objects.filter(vlan=mgmt_vlan, network__net_contains=str(ip_host)).first()
@@ -314,10 +356,10 @@ class CreateSwitch(Job):
         ip_obj = self._assign_primary_ip(device, svi_iface, str(ipi.ip), mask_len, status_active)
         self.logger.success(
             f"Assigned {ip_obj.host}/{ip_obj.mask_length} to {svi_iface.name} and set as Primary IPv4 "
-            f"(VLAN {mgmt_vlan.vid} {mgmt_vlan.name}; Prefix {covering.network}/{covering.prefix_length})."
+            f"(vlan {mgmt_vlan.vid} {mgmt_vlan.name}; Prefix {covering.network}/{covering.prefix_length})."
         )
 
-        return f"Device '{device.name}' ready with Primary IPv4 {device.primary_ip4.host}/{device.primary_ip4.mask_length}."
+        return f"Device '{device.name}' created with Primary IPv4 {device.primary_ip4.host}/{device.primary_ip4.mask_length}."
 
 
 register_jobs(CreateSwitch)
