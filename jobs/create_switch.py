@@ -143,11 +143,15 @@ class CreateSwitch(Job):
             parts.append(k_designation)
         return parts
 
-    def _auto_role_code(self, room: Location, base_parts: list[str]) -> str:
-        base_prefix = "-".join(base_parts) + "-as"
+    def _auto_role_code(self, room: Location) -> str:
+        """
+        Find the highest as# already used by any device in this room, regardless of the
+        rest of the name (and whether it's a VC member like '.1'), then return next as#.
+        """
         max_n = 0
+        pattern = re.compile(r"-as(\d+)(?:\.\d+)?$", re.IGNORECASE)
         for name in Device.objects.filter(location=room).values_list("name", flat=True):
-            m = re.fullmatch(rf"{re.escape(base_prefix)}(\d+)(?:\.1)?", name, flags=re.IGNORECASE)
+            m = pattern.search(name or "")
             if m:
                 try:
                     n = int(m.group(1))
@@ -155,15 +159,19 @@ class CreateSwitch(Job):
                         max_n = n
                 except ValueError:
                     continue
-        return f"as{max_n + 1 if max_n else 1}"
-
+        return f"as{(max_n + 1) if max_n else 1}"
+    
     def _suggest_name(self, building: Location, room: Location) -> str:
         base_parts = self._base_name_parts(building, room)
-        auto_role = self._auto_role_code(room, base_parts)  # e.g., 'as3'
+        auto_role = self._auto_role_code(room)  # <-- no base_parts dependency now
         base = "-".join(base_parts + [auto_role])
         normalized = re.sub(r'[^A-Za-z0-9\-]', '', base)
         normalized = re.sub(r'-{2,}', '-', normalized).strip('-')
         return normalized.lower()
+
+    def _role_code_in_use(self, room: Location, role_code: str) -> bool:
+        pattern = rf"-{re.escape(role_code)}(?:\.\d+)?$"
+        return Device.objects.filter(location=room, name__regex=pattern).exists()
 
     def _validate_name(self, name: str):
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9\-]{1,62}', name):
@@ -183,56 +191,6 @@ class CreateSwitch(Job):
         device.save()
         return ip_obj
 
-    def _choices_available_ips_for_vlan(self, vlan: VLAN, skip_first: int = 0, limit: int = 256):
-        if not vlan:
-            return []
-        vlan_prefixes = Prefix.objects.filter(vlan=vlan)
-        if not vlan_prefixes.exists():
-            return []
-        in_use_hosts = set()
-        for p in vlan_prefixes:
-            try:
-                network = p.network
-            except Exception:
-                continue
-            used = IPAddress.objects.filter(host__net_contained=network).values_list("host", flat=True)
-            in_use_hosts.update(str(h) for h in used)
-        candidates = []
-        for p in vlan_prefixes:
-            try:
-                net = p.network
-            except Exception:
-                continue
-            host_list = list(net.hosts())
-            if skip_first:
-                host_list = host_list[skip_first:]
-            for ip in host_list:
-                if len(candidates) >= limit:
-                    break
-                s = str(ip)
-                if s in in_use_hosts:
-                    continue
-                candidates.append((s, s))
-            if len(candidates) >= limit:
-                break
-        return candidates
-
-    def as_form_field_overrides(self):
-        overrides = super().as_form_field_overrides()
-        form = self._get_bound_form()
-        if form is not None:
-            selected_vlan = form.cleaned_data.get("mgmt_vlan") or form.initial.get("mgmt_vlan")
-            if selected_vlan:
-                try:
-                    if not isinstance(selected_vlan, VLAN):
-                        selected_vlan = VLAN.objects.get(pk=selected_vlan)
-                except Exception:
-                    selected_vlan = None
-            if selected_vlan:
-                overrides["mgmt_ip_choice"] = {
-                    "choices": self._choices_available_ips_for_vlan(selected_vlan, skip_first=0, limit=256)
-                }
-        return overrides
 
     def run(
         self,
@@ -245,7 +203,7 @@ class CreateSwitch(Job):
         custom_name,
         vc,
         mgmt_vlan,
-        mgmt_ip_choice,
+        mgmt_ip,
     ):
         status_active = Status.objects.get(name="Active")
 
@@ -278,6 +236,16 @@ class CreateSwitch(Job):
             base_name = suggested_name
             self.logger.info(f"Suggested name: {suggested_name} (using auto).")
 
+        if name_mode == "manual":
+            m = re.search(r"-(as\d+)(?:\.\d+)?$", base_name, re.IGNORECASE)
+            if m:
+                rc = m.group(1).lower()
+                if self._role_code_in_use(room, rc):
+                    raise ValueError(
+                        f"Role code '{rc}' is already used in {room}. "
+                        "Each closet must have a unique as#. Please choose a different as#."
+                    )
+
         self._validate_name(base_name)
 
         if Device.objects.filter(name=base_name).exists() or Device.objects.filter(name=f"{base_name}.1").exists():
@@ -292,9 +260,9 @@ class CreateSwitch(Job):
                 base_name = base_name[:-2]
 
         try:
-            ip_host = ip_address(str(mgmt_ip_choice).strip())
+            ip_host = ip_address(str(mgmt_ip).strip())
         except Exception:
-            raise ValueError(f"'{mgmt_ip_choice}' is not a valid IPv4 address (enter a single host IP, no mask).")
+            raise ValueError(f"'{mgmt_ip}' is not a valid IPv4 address (enter a single host IP, no mask).")
 
         if IPAddress.objects.filter(host=str(ip_host)).exists():
             raise ValueError(f"Management IP {ip_host} is already in use.")
